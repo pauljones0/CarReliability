@@ -3,7 +3,8 @@ from bisect import bisect
 import cv2
 import numpy as np
 
-image_path = 'C:/Users/bethe/PycharmProjects/pythonProject/images/Acura_TL.png'
+image_path = 'images/Acura_TL.png'
+
 
 def map_number_to_year_using_bisection(num):
     midpoints = [90.5, 122, 153.5, 184.5, 216, 247.5, 279, 310.5, 341.5, 373, 404.5, 436, 467.5, 498.5,

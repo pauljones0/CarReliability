@@ -2,6 +2,10 @@ import cv2
 import numpy as np
 
 
+def destroy_all_windows():
+    cv2.destroyAllWindows()
+
+
 class LineDetector:
     def __init__(self, image_path):
         self.image_path = image_path
@@ -61,16 +65,13 @@ class LineDetector:
         cv2.imshow(window_name, image)
         cv2.waitKey(0)
 
-    def destroy_all_windows(self):
-        cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
-    line_detector = LineDetector('C:/Users/bethe/PycharmProjects/pythonProject/images/Chrysler_Grand_Voyager.png')
+    line_detector = LineDetector('images/Chrysler_Grand_Voyager.png')
     line_detector.read_image()
     line_detector.convert_to_grayscale()
     line_detector.create_mask(204, 205)
     line_detector.detect_lines(1, np.pi / 180, 10, 50, 10)
     line_detector.draw_and_classify_lines()
     line_detector.analyze_lines()
-    line_detector.destroy_all_windows()
+    destroy_all_windows()
