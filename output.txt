@@ -1,0 +1,15 @@
+First inner vertical line at x = 75
+Last inner vertical line at x = 891
+First outer vertical line at x = 59 (aka left of the graph)
+Last outer vertical line at x = 907 (aka right of the graph)
+Average distance between vertical lines = 30.22222222222222
+Min y-coordinate of all vertical lines = 556 (aka bottom of the graph)
+Max y-coordinate of all vertical lines = 34 (aka top of the graph)
+List of vertical line x-locations: [75, 106, 138, 169, 200, 232, 263, 295, 326, 357, 389, 420, 452, 483, 514, 546, 577, 609, 640, 672, 703, 734, 766, 797, 829, 860, 891]
+First inner horizontal line at y = 85
+Last inner horizontal line at y = 504
+Average distance between horizontal lines = 46.55555555555556
+List of horizontal line y-locations: [85, 138, 190, 242, 295, 347, 400, 452, 504]
+List of vertical line midpoints = [37.5, 90.5, 122, 153.5, 184.5, 216, 247.5, 279, 310.5, 341.5, 373, 404.5, 436, 467.5, 498.5,
+                        530, 561.5, 593, 624.5, 656, 687.5, 718.5, 750, 781.5, 813, 844.5, 875.5, 945.5]
+
