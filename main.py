@@ -23,9 +23,13 @@ class YearMapper:
         return YEARS[bisect(MIDPOINTS, num)]
 
 
+def _crop_image(img, graph):
+    return img[graph.top:graph.bottom, graph.left:graph.right]
+
+
 class ImageProcessor:
     def __init__(self, path, graph, rho=0.5, theta=np.pi / 180, threshold=10, min_line_length=25, max_line_gap=10):
-        self.image = self._crop_image(cv2.imread(path), graph)
+        self.image = _crop_image(cv2.imread(path), graph)
         self.lines = None
         self.year_to_quality = None
         self.rho = rho
@@ -33,9 +37,6 @@ class ImageProcessor:
         self.threshold = threshold
         self.min_line_length = min_line_length
         self.max_line_gap = max_line_gap
-
-    def _crop_image(self, img, graph):
-        return img[graph.top:graph.bottom, graph.left:graph.right]
 
     def detect_lines(self):
         # Create a binary mask for near-black color
