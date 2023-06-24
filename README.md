@@ -1,5 +1,5 @@
 # CarReliability
-Using image processing and webscraping combined with the EPA database to get reliability of cars alongside their MPG (and potentially range?)
+Using image processing and webscraping combined with the EPA database to get reliability of cars alongside their MPG
 
 From my work I have found (to my knowledge) that the best cars wtih >90 reliability ranking on https://www.dashboard-light.com/ and a >30 MPG Combined MPG on the EPA database are the following:
 
@@ -18,3 +18,4 @@ Volkswagen Golf - 2012, 2015
 Volkswagen Jetta - 2018
 
 Hopefully this helps out someone who had the same damn question that I did.
+Note that the Nissan Leaf has terrible range.
