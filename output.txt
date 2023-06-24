@@ -13,3 +13,4 @@ List of horizontal line y-locations: [85, 138, 190, 242, 295, 347, 400, 452, 504
 List of vertical line midpoints = [37.5, 90.5, 122, 153.5, 184.5, 216, 247.5, 279, 310.5, 341.5, 373, 404.5, 436, 467.5, 498.5,
                         530, 561.5, 593, 624.5, 656, 687.5, 718.5, 750, 781.5, 813, 844.5, 875.5, 945.5]
 
+Instead of bisecting of where the vertical lines are, check for a line with a x1 and x2 on each side. If so, that line applies to that year. If not year found, then check near the bottom or top for red for green. If found, assign 0 or 100.
