@@ -6,6 +6,7 @@ import numpy as np
 class Constants:
     IMAGE_DIR = 'images'
     DEBUG_FLAG = False
+    DESIRED_RELIABILITY_PERCENTAGE = 90
     START_YEAR = 1993
     END_YEAR = 2018
     FIRST_FULL_LINE, LAST_FULL_LINE = 32, 816
@@ -122,7 +123,7 @@ class FileWriter:
         with open(file_name, 'w') as file:
             for car, year_data in data.items():
                 for year, percentage in year_data.items():
-                    if percentage >= 90:
+                    if percentage >= Constants.DESIRED_RELIABILITY_PERCENTAGE:
                         file.write(f'{car} {year}\n')
 
 def main():
@@ -139,7 +140,7 @@ def main():
                 result_dict[filename[:-4]] = {year: percent for year, percent in sorted(mapper.year_to_quality)}
 
     FileWriter.write_to_json('result.json', result_dict)
-    FileWriter.write_to_txt('cars_above_90.txt', result_dict)
+    FileWriter.write_to_txt(f'cars_above_{Constants.DESIRED_RELIABILITY_PERCENTAGE}.txt', result_dict)
 
 if __name__ == "__main__":
     main()
