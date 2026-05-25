@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+
+# Output files
+result.json
+cars_above_*.txt
+data/result.json
+
+# Dependencies
+node_modules/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# OS
+.DS_Store

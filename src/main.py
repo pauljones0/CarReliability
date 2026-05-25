@@ -1,146 +1,215 @@
+import argparse
 import os
 import json
-import cv2
-import numpy as np
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from src.constants import Constants
+from src.sources.dashboard_light import DashboardLightSource
+from src.sources.repairpal import RepairPalSource
+from src.sources.nhtsa import NHTSASource
+from src.sources.carcomplaints import CarComplaintsSource
+from src.sources.byd import BYDSource
+from src.sources.fueleconomy import FuelEconomySource
+from src.sources.vmrcanada import VMRCanadaSource
+from src.sources.caredge import CarEdgeSource
+from src.sources.safety import SafetyRatingsSource
+from src.file_handler import FileHandler
 
-class Constants:
-    IMAGE_DIR = 'images'
-    DEBUG_FLAG = False
-    DESIRED_RELIABILITY_PERCENTAGE = 90
-    START_YEAR = 1993
-    END_YEAR = 2018
-    FIRST_FULL_LINE, LAST_FULL_LINE = 32, 816
+class ReliabilityAggregator:
+    def __init__(self):
+        self.sources = {
+            'dashboard_light': DashboardLightSource(),
+            'repairpal': RepairPalSource(),
+            'nhtsa': NHTSASource(),
+            'carcomplaints': CarComplaintsSource(),
+            'byd': BYDSource(),
+            'fueleconomy': FuelEconomySource(),
+            'vmrcanada': VMRCanadaSource(),
+            'caredge': CarEdgeSource(),
+            'safety': SafetyRatingsSource()
+        }
 
-    @staticmethod
-    def generate_midpoints_to_year_mapping():
-        years = range(Constants.START_YEAR, Constants.END_YEAR + 1)
-        midpoints = np.linspace(Constants.FIRST_FULL_LINE, Constants.LAST_FULL_LINE, len(years)).astype(int)
-        midpoints_to_year_mapping = list(zip(midpoints, years))
-        midpoints_to_year_mapping = Constants.correct_midpoints(midpoints_to_year_mapping)
-        midpoints_to_year_mapping.insert(0, (12, 1992))
-        midpoints_to_year_mapping.append((836, 2019))
-        return midpoints_to_year_mapping
+    def _discover_year(self, make, model):
+        """Discover the most recent valid model year using real data sources."""
+        # --- Source 1: CarComplaints overview ---
+        cc_overview = self.sources['carcomplaints'].get_data(make, model)
+        if cc_overview:
+            available = cc_overview.get('available_years', [])
+            if available:
+                return max(available), cc_overview
+        
+        # --- Source 2: NHTSA model-years API ---
+        try:
+            url = f"https://api.nhtsa.gov/products/vehicle/modelYears?issueType=c&make={make}&model={model}"
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                results = resp.json().get('results', [])
+                years = [int(r['modelYear']) for r in results if str(r.get('modelYear', '')).isdigit()]
+                if years:
+                    return max(years), cc_overview
+        except Exception:
+            pass
 
-    @staticmethod
-    def correct_midpoints(midpoints_to_year_mapping):
-        corrected_mapping = []
-        for midpoint, year in midpoints_to_year_mapping:
-            if year in [2000,2003,2004,2006,2009,2010,2011,2012,2013,2014,2015,2016]:
-                midpoint += 1
-            elif year == 2017:
-                midpoint += 2
-            corrected_mapping.append((midpoint, year))
-        return corrected_mapping
+        return None, cc_overview
 
-class Graph:
-    def __init__(self, top=34, bottom=556, left=59, right=907):
-        self.top = top
-        self.bottom = bottom
-        self.left = left
-        self.right = right
+    def aggregate(self, make, model, year=None, km=None, province="ON_SOUTH"):
+        # Global Normalization / Brand Aliasing
+        original_make = make
+        original_model = model
+        
+        # Brand redirects
+        if make.upper() == "GMC" and "SUBURBAN" in model.upper():
+            make = "Chevrolet"
+        elif make.upper() == "SCION":
+            make = "Toyota"
+            
+        print(f"Aggregating data for {year or 'latest'} {make} {model}...")
+        results = {}
 
-class Image:
-    def __init__(self, path, graph):
-        img = cv2.imread(path)
-        if img is None:
-            raise ValueError(f"Image at {path} could not be read.")
-        self.image = self._crop_image(img, graph)
+        # BYD Specific Check
+        if make.upper() == "BYD":
+            byd_data = self.sources['byd'].get_data(make, model, year)
+            if byd_data:
+                results.update(byd_data)
+            return results
 
+        # 1. Dashboard Light (Historical) — year-independent, always fetch
+        dl_data = self.sources['dashboard_light'].get_data(make, model)
+        if dl_data:
+            results['historical_reliability'] = dl_data
 
-    @staticmethod
-    def _crop_image(img, graph):
-        return img[graph.top:graph.bottom, graph.left:graph.right]
+        # Determine the year to use for all year-dependent API queries.
+        query_year = year
+        prefetched_cc = None
 
-class LineDetector:
-    def __init__(self, image, rho=0.5, theta=np.pi / 180, threshold=10,
-                 min_line_length=25, max_line_gap=10):
-        self.image = image
-        self.lines = None
-        self.rho = rho
-        self.theta = theta
-        self.threshold = threshold
-        self.min_line_length = min_line_length
-        self.max_line_gap = max_line_gap
+        if not query_year:
+            # Try Dashboard Light years first (already in memory, zero extra cost)
+            if dl_data:
+                dl_years = sorted([int(y) for y in dl_data.keys()])
+                if dl_years:
+                    query_year = dl_years[-1]
 
-    def detect_lines(self):
-        mask = cv2.inRange(self.image, 0, 0)
-        lines = cv2.HoughLinesP(mask, rho=self.rho, theta=self.theta, threshold=self.threshold,
-                                minLineLength=self.min_line_length, maxLineGap=self.max_line_gap)
-        self.lines = lines if lines is not None else []
-        return self.lines
+        # Hit CarComplaints + NHTSA to find the real latest year
+        discovered_year, prefetched_cc = self._discover_year(make, model)
+        if not query_year and discovered_year:
+            query_year = discovered_year
+            
+        # Prio 3: Default for older/discontinued cars if still unknown
+        if not query_year:
+            query_year = 2015 # A safe modern default for pricing/recalls if all discovery fails
 
+        results['data_year'] = query_year
 
-class YearQualityMapper:
-    def __init__(self, image, lines):
-        self.image = image
-        self.lines = lines
-        self.year_to_quality = None
+        # 2. RepairPal (Costs/Ratings) — year-independent
+        rp_data = self.sources['repairpal'].get_data(make, model)
+        if rp_data:
+            results.update(rp_data)
 
-    def create_year_quality_mapping(self):
-        self.year_to_quality = self._map_to_year_quality()
-
-    def _map_to_year_quality(self):
-        year_mapping = set()
-        height, _, _ = self.image.shape
-        for midpoint, year in Constants.generate_midpoints_to_year_mapping():
-            year_mapping = self._evaluate_midpoints(midpoint, year, year_mapping, height)
-        return year_mapping
-
-    def _evaluate_midpoints(self, midpoint, year, year_mapping, height):
-        applicable_line = next((line for line in self.lines if line[0][0] <= midpoint <= line[0][2]), None)
-        if applicable_line is not None:
-            year_mapping = self._evaluate_applicable_line(applicable_line, year, year_mapping, height)
+        # 3. CarComplaints (Issues)
+        # Re-use pre-fetched overview data if we already called it during year discovery
+        if prefetched_cc is not None:
+            cc_data = prefetched_cc
+            # Now enrich with the year-specific complaint count if we have a year
+            if query_year and 'carcomplaints_count' not in cc_data:
+                cc_extra = self.sources['carcomplaints'].get_data(make, model, query_year)
+                if cc_extra:
+                    cc_data.update(cc_extra)
         else:
-            year_mapping = self._evaluate_pixels(midpoint, year, year_mapping, height)
-        return year_mapping
+            cc_data = self.sources['carcomplaints'].get_data(make, model, query_year)
+        if cc_data:
+            # Remove internal available_years from the final output
+            cc_data.pop('available_years', None)
+            results.update(cc_data)
 
-    def _evaluate_applicable_line(self, applicable_line, year, year_mapping, height):
-        x1, y1, x2, y2 = applicable_line[0]
-        cv2.line(self.image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        if y1 == y2:  # horizontal line
-            percentage = round(((height - y1) / height) * 100)
-            year_mapping.add((year, percentage))  # add year and percentage
-        return year_mapping
+        # 4. NHTSA (Recalls/Complaints)
+        nhtsa_data = self.sources['nhtsa'].get_data(make, model, query_year)
+        if nhtsa_data:
+            results.update(nhtsa_data)
 
-    def _evaluate_pixels(self, midpoint, year, year_mapping, height):
-        bottom_pixel = self.image[height - 30, midpoint]
-        if np.array_equal(bottom_pixel, np.array([217, 217, 255])):  # FFD9D9 in RGB
-            year_mapping.add((year, 0))  # add year and percentage == 0
+        # 5. Fuel Economy (MPG)
+        mpg_data = self.sources['fueleconomy'].get_data(make, model, query_year)
+        if mpg_data:
+            results.update(mpg_data)
 
-        top_pixel = self.image[30, midpoint]
-        if np.array_equal(top_pixel, np.array([255, 240, 222])):  # DEF0FF in RGB
-            year_mapping.add((year, 100))  # add year and percentage == 100
-        return year_mapping
+        # 6. VMR Canada (Pricing)
+        vmr_data = self.sources['vmrcanada'].get_data(make, model, query_year, km, province)
+        if vmr_data:
+            results.update(vmr_data)
 
-class FileWriter:
-    @staticmethod
-    def write_to_json(file_name, data):
-        with open(file_name, 'w') as json_file:
-            json.dump(data, json_file)
+        # 7. CarEdge (Maintenance Projections) — year-independent
+        ce_data = self.sources['caredge'].get_data(make, model)
+        if ce_data:
+            results.update(ce_data)
 
-    @staticmethod
-    def write_to_txt(file_name, data):
-        with open(file_name, 'w') as file:
-            for car, year_data in data.items():
-                for year, percentage in year_data.items():
-                    if percentage >= Constants.DESIRED_RELIABILITY_PERCENTAGE:
-                        file.write(f'{car} {year}\n')
+        # 8. Safety Ratings (NHTSA/IIHS)
+        safety_data = self.sources['safety'].get_data(make, model, query_year)
+        if safety_data:
+            results.update(safety_data)
+
+        return results
 
 def main():
-    result_dict = {}
-    for filename in os.listdir(Constants.IMAGE_DIR):
-        if filename.endswith(".png"):
-            file_path = os.path.join(Constants.IMAGE_DIR, filename)
-            image = Image(file_path, Graph())
-            line_detector = LineDetector(image.image)
-            lines = line_detector.detect_lines()
-            mapper = YearQualityMapper(image.image, lines)
-            mapper.create_year_quality_mapping()
-            if mapper.year_to_quality:
-                result_dict[filename[:-4]] = {year: percent for year, percent in sorted(mapper.year_to_quality)}
+    parser = argparse.ArgumentParser(description="Car Reliability Aggregator")
+    parser.add_argument("--make", help="Car make (e.g., Honda)")
+    parser.add_argument("--model", help="Car model (e.g., Accord)")
+    parser.add_argument("--year", type=int, help="Car year (e.g., 2018)")
+    parser.add_argument("--km", type=int, help="Odometer reading in KM for price adjustment")
+    parser.add_argument("--province", default="ON_SOUTH", help="Province code (e.g., BC, AB, QC) for price adjustment")
+    parser.add_argument("--all", action="store_true", help="Process all images in the image directory")
+    parser.add_argument("--limit", type=int, help="Limit the number of models processed in batch mode")
+    parser.add_argument("--workers", type=int, default=5, help="Number of parallel workers for batch processing")
+    
+    args = parser.parse_args()
+    aggregator = ReliabilityAggregator()
 
-    FileWriter.write_to_json('result.json', result_dict)
-    FileWriter.write_to_txt(f'cars_above_{Constants.DESIRED_RELIABILITY_PERCENTAGE}.txt', result_dict)
+    if args.all:
+        result_dict = {}
+        filenames = [f for f in os.listdir(Constants.IMAGE_DIR) if f.endswith(".png")]
+        if args.limit:
+            filenames = filenames[:args.limit]
+
+        print(f"Starting batch processing of {len(filenames)} models with {args.workers} workers...")
+
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            future_to_model = {}
+            for filename in filenames:
+                if filename.startswith("Land_Rover_"):
+                    make = "Land Rover"
+                    model = filename[len("Land_Rover_"):-4].replace('_', ' ')
+                else:
+                    parts = filename[:-4].split('_', 1)
+                    if len(parts) == 2:
+                        make, model = parts
+                        model = model.replace('_', ' ')
+                    else:
+                        continue
+                
+                # In batch mode, we use default km/province
+                future = executor.submit(aggregator.aggregate, make, model)
+                future_to_model[future] = f"{make}_{model}"
+            
+            processed_count = 0
+            for future in as_completed(future_to_model):
+                model_key = future_to_model[future]
+                try:
+                    data = future.result()
+                    result_dict[model_key] = data
+                except Exception as e:
+                    print(f"Error processing {model_key}: {e}")
+                
+                processed_count += 1
+                if processed_count % 10 == 0:
+                    print(f"Processed {processed_count}/{len(filenames)} models...")
+                    FileHandler.write_to_json('aggregated_reliability.json', result_dict)
+        
+        FileHandler.write_to_json('aggregated_reliability.json', result_dict)
+        print("Batch processing complete. Results saved to aggregated_reliability.json")
+        
+    elif args.make and args.model:
+        data = aggregator.aggregate(args.make, args.model, args.year, args.km, args.province)
+        print(json.dumps(data, indent=4))
+    else:
+        parser.print_help()
 
 if __name__ == "__main__":
     main()
