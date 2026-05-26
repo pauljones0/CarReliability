@@ -1,65 +1,77 @@
-# CarReliability Aggregator
+# Car Reliability Aggregator & MCP Server
 
-A powerful tool that aggregates car reliability data from multiple authoritative sources to provide a comprehensive view of vehicle dependability and ownership costs.
+A robust, modular data collection pipeline and CLI-first MCP server for automotive reliability, maintenance costs, and safety data.
+
+## 🚀 Model Context Protocol (MCP)
+This project is an **MCP Server**. AI agents can explore the dataset using familiar Unix-style commands.
+
+### Agent Workflow
+1.  **Discover:** `reliability` (shows usage)
+2.  **Explore:** `reliability ls Honda` (lists models)
+3.  **Search:** `reliability grep "Accord"`
+4.  **Inspect:** `reliability cat Honda_Accord`
+
+### MCP Setup
+Add this to your `mcp_config.json` (e.g., in Claude Desktop or other clients):
+
+```json
+{
+  "mcpServers": {
+    "car-reliability": {
+      "command": "python3",
+      "args": ["/path/to/CarReliability/src/mcp_server.py"],
+      "env": {
+        "PYTHONPATH": "/path/to/CarReliability"
+      }
+    }
+  }
+}
+```
+See `mcp_config.sample.json` for a template.
+
+---
+
+## 🔄 Refresh Pipeline
+To refresh the entire dataset (443+ models), use the following command. It features **exponential backoff** for rate limits and **automated model discovery** for NHTSA.
+
+```bash
+export PYTHONPATH=$PYTHONPATH:.
+python3 src/main.py --all --workers 5
+```
+
+### Contribution Workflow (PRs)
+We prioritize community data updates! If you update the data or fix a naming mismatch:
+1.  Run the refresh pipeline.
+2.  Review `naming_audit.log` for any new 404s.
+3.  **Commit both code and data:** `git add src/ aggregated_reliability.json`
+4.  **Submit a PR:** Please make a PR to the main remote repo with your updated `aggregated_reliability.json` so the entire community benefits from the fresh stats.
+
+---
+
+## 🛠 Architecture & Modularity
+The project is built on a "Two-Layer" Unix philosophy:
+-   **Execution Layer (`UnixExecutor`):** Pure logic, piping (`|`), and sequential (`;`) execution.
+-   **Presentation Layer (`LLMPresentation`):** Binary guards, auto-truncation (200 line limit), and metadata footers (`[exit:0 | 12ms]`).
+
+### Project Structure
+-   `src/sources/`: Modular data fetchers (NHTSA, RepairPal, CarEdge, etc.)
+-   `src/cli_interface.py`: The `reliability` command implementation.
+-   `src/mcp_server.py`: The MCP wrapper for agent interaction.
+-   `src/main.py`: The primary aggregation engine.
 
 ## Data Sources
-
-1.  **Dashboard Light:** Historical reliability percentages (1993-2018) extracted via image processing of their quality graphs.
-2.  **RepairPal:** Average annual repair costs and overall reliability ratings (out of 5.0).
-3.  **NHTSA (National Highway Traffic Safety Administration):** Official recall counts and consumer complaint counts via their public API. Supports models up to **2023/2024**.
-4.  **CarComplaints.com:** Identification of the "Worst Model Year" and the most common problem categories.
-5.  **BYD (2026 Canadian Entry):** Specialized data for rumored BYD models arriving in Canada in late 2026, synthesized from European and Australian reliability reports.
-6.  **FuelEconomy.gov (EPA):** Official City, Highway, and Combined MPG estimates.
-7.  **VMR Canada:** Canadian used car price estimates (Wholesale and Retail) by trim.
-8.  **CarEdge:** 10-year projected maintenance costs and probability of major repairs.
-9.  **Safety Ratings:** Combined official NHTSA 5-star ratings and IIHS crashworthiness awards.
-
-## BYD 2026 Canadian Entry
-
-The tool includes projected data for the following BYD models rumored for the Canadian market:
-- **Seagull (Dolphin Mini):** Estimated sub-$25,000 price; expected to be Canada's most affordable EV.
-- **Atto 3:** Global bestseller; 5-star Euro NCAP safety rating.
-- **Seal:** High-performance sport sedan; Tesla Model 3 rival.
-- **Shark:** PHEV Pickup; 800km+ total range; V2L capability for cold-weather utility.
-
-## Project Structure
-
-- `src/`: Source code
-  - `sources/`: Modular data source implementations.
-    - `dashboard_light.py`: Processes local graph images.
-    - `repairpal.py`: Scrapes RepairPal for costs and ratings.
-    - `nhtsa.py`: Queries NHTSA API for recalls and complaints.
-    - `carcomplaints.py`: Scrapes CarComplaints for model-wide issues.
-  - `image_processor.py`: Core image processing logic (OpenCV).
-  - `constants.py`: Centralized configuration.
-  - `main.py`: Interactive CLI aggregator.
-- `data/`: Extracted data and input JSON files.
-- `images/`: Raw graph images for Dashboard Light processing.
-- `tests/`: Unit tests for core logic.
-
-## Installation
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
-
-### Query a Specific Car
-Get a full reliability profile for a specific make, model, and year. You can also provide the odometer reading (in KM) and your province for localized price adjustments:
-```bash
-python3 src/main.py --make Honda --model Accord --year 2018 --km 100000 --province BC
-```
-**Supported Province Codes:** BC, AB, SK, MB, ON_SOUTH, ON_NORTH, QC, NB, NS, PE, NL, YT, NT, NU.
-
-### Batch Process All Images
-Aggregate data for all models that have images in the `images/` directory:
-```bash
-python3 src/main.py --all
-```
-Results will be saved to `aggregated_reliability.json`.
+1.  **Dashboard Light:** Historical reliability (1993-2018) via OpenCV image processing.
+2.  **RepairPal:** Annual repair costs and 5.0-scale ratings.
+3.  **NHTSA:** Official recalls and consumer complaints (up to 2024).
+4.  **CarComplaints.com:** Worst years and common mechanical failure points.
+5.  **FuelEconomy.gov (EPA):** Official MPG estimates.
+6.  **VMR Canada:** Wholesale/Retail pricing by trim.
+7.  **CarEdge:** 10-year projected maintenance costs.
+8.  **Safety Ratings:** Combined NHTSA/IIHS crash test results.
 
 ## Testing
 ```bash
 pytest tests/
+# or use the verification script
+python3 scratch/verify_mcp.py
 ```

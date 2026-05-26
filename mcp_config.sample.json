@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "car-reliability": {
+      "command": "python3",
+      "args": ["src/mcp_server.py"],
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  }
+}
